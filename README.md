@@ -269,3 +269,244 @@ Uncle Bob tarafından ortaya konan bu mimaride temel kural **Bağımlılıkları
 - **Application:** İş senaryoları, Use-Case'ler, DTO'lar, CQRS Handler'ları ve Interface tanımları.
 - **Infrastructure:** Veritabanı erişimi (EF Core), e-posta gönderimi, harici servis adaptörleri.
 - **API / Web:** HTTP isteklerini karşılayan ve sonuçları dönen dış kabuk.
+
+## 5. Veritabanı ve ORM (Object-Relational Mapping)
+
+### 5.1 SQL Nedir? İlişkisel (RDBMS) vs İlişkisel Olmayan (NoSQL) Veritabanları
+- **SQL (Structured Query Language):** İlişkisel veritabanlarını sorgulamak, güncellemek ve yönetmek için kullanılan standart bildirimsel dildir.
+- **RDBMS (İlişkisel):** Verileri katı şemalara sahip tablolarda, satır ve sütunlar halinde saklar. Tablolar arasında birincil (Primary Key) ve yabancı (Foreign Key) anahtarlarla ilişkiler kurulur. ACID (Atomicity, Consistency, Isolation, Durability) prensiplerine sıkı sıkıya bağlıdır.
+  - *Örnekler:* PostgreSQL, MSSQL, MySQL.
+- **NoSQL (İlişkisel Olmayan):** Esnek şemalı, büyük veri hacimlerini yatayda ölçekleyebilen (horizontal scaling) sistemlerdir. Belge (Document), anahtar-değer (Key-Value), kolon veya grafik tabanlı modeller kullanır.
+  - *Örnekler:* MongoDB, Redis, Cassandra.
+
+### 5.2 ORM ve Entity Framework Core Nedir?
+- **ORM (Object-Relational Mapping):** Nesne yönelimli programlama dillerindeki nesneler (C# sınıfları) ile ilişkisel veritabanı tabloları arasında köprü kuran bir tekniktir. Geliştiriciyi ham SQL sorguları yazmaktan kurtarır.
+- **Entity Framework Core (EF Core):** .NET ekosisteminin modern, açık kaynaklı, çapraz platform ve hafif ORM aracıdır.
+
+### 5.3 `DbContext` Nedir ve Nasıl Çalışır?
+`DbContext`, EF Core'un kalbidir. Veritabanı ile uygulama arasındaki oturumu temsil eder. Hem **Repository** hem de **Unit of Work** tasarım kalıplarının birleşik uygulamasıdır. Değişiklikleri izler (Change Tracking), sorguları SQL'e dönüştürür ve `SaveChangesAsync()` çağrıldığında tek bir transaction içinde veritabanına yansıtır.
+
+### 5.4 Code-First vs Database-First Yaklaşımı
+
+| Kriter | Code-First | Database-First |
+|---|---|---|
+| **Çıkış Noktası** | C# Entity sınıfları | Mevcut veritabanı şeması |
+| **Yönetim** | EF Core Migrations (`dotnet ef migrations add`) | Scaffold komutları ile sınıfların tersine mühendislikle üretilmesi |
+| **Avantajı** | Veritabanı bağımsızlığı, kod üzerinde tam sürüm kontrolü | Halihazırda var olan karmaşık ve eski (legacy) veritabanlarına kolay entegrasyon |
+| **Kullanım Alanı** | Sıfırdan başlanan modern mikroservis / web projeleri | Kurumsal ve önceden tasarlanmış veritabanı projeleri |
+
+### 5.5 Temel SQL Sorguları ve Karşılık Gelen LINQ İfadeleri
+
+1. **Seçme / Filtreleme (SELECT & WHERE):**
+   - *SQL:* `SELECT * FROM Products WHERE Price > 100 AND IsActive = 1;`
+   - *LINQ:*
+     ```csharp
+     var products = await _context.Products
+         .Where(p => p.Price > 100 && p.IsActive)
+         .ToListAsync();
+     ```
+
+2. **Ekleme (INSERT):**
+   - *SQL:* `INSERT INTO Products (Title, Price, IsActive) VALUES ('Laptop', 25000, 1);`
+   - *LINQ / EF Core:*
+     ```csharp
+     var product = new Product { Title = "Laptop", Price = 25000, IsActive = true };
+     await _context.Products.AddAsync(product);
+     await _context.SaveChangesAsync();
+     ```
+
+3. **Güncelleme (UPDATE):**
+   - *SQL:* `UPDATE Products SET Price = 27000 WHERE Id = 1;`
+   - *LINQ / EF Core:*
+     ```csharp
+     var product = await _context.Products.FindAsync(1);
+     if (product != null)
+     {
+         product.Price = 27000;
+         await _context.SaveChangesAsync();
+     }
+     ```
+
+4. **Silme (DELETE):**
+   - *SQL:* `DELETE FROM Products WHERE Id = 1;`
+   - *LINQ / EF Core:*
+     ```csharp
+     var product = await _context.Products.FindAsync(1);
+     if (product != null)
+     {
+         _context.Products.Remove(product);
+         await _context.SaveChangesAsync();
+     }
+     ```
+
+---
+
+## 6. Güvenlik ve Performans
+
+### 6.1 Authentication vs Authorization
+- **Authentication (Kimlik Doğrulama):** "Kullanıcı kim?" sorusunun yanıtıdır. Kullanıcının kimliğini doğrulamak için parola, iki adımlı doğrulama (2FA) veya token kontrolü yapılır.
+- **Authorization (Yetkilendirme):** "Doğrulanan kullanıcının bu kaynağa erişim izni var mı?" sorusunun yanıtıdır. Rol ve yetki (Role-based, Policy-based, Claim-based) denetimlerini kapsar.
+
+### 6.2 JWT (JSON Web Token) Mimarisi
+JWT, taraflar arasında güvenli ve doğrulanabilir JSON nesneleri aktaran durumsuz (stateless) bir standarttır (RFC 7519). Üç bileşenden oluşur:
+1. **Header:** Kullanılan algoritma (`HS256`, `RS256`) ve token tipini içerir.
+2. **Payload:** Kullanıcı kimliği (sub), roller ve son geçerlilik tarihi (exp) gibi hak iddialarını (claims) taşır.
+3. **Signature:** Header ve Payload'un sunucuya ait gizli bir anahtar (secret key) ile hash'lenmesiyle üretilir. Verinin yolda tahrif edilip edilmediğini doğrular.
+
+### 6.3 OAuth 2.0, OpenID Connect ve OpenIddict İlişkisi
+- **OAuth 2.0:** Bir yetkilendirme (authorization) protokolüdür. Kullanıcının şifresini paylaşmadan üçüncü taraf bir uygulamanın kaynaklara erişmesine izin verir (Örn: "Google hesabınla Spotify'a erişim ver").
+- **OpenID Connect (OIDC):** OAuth 2.0 üzerine inşa edilmiş bir kimlik doğrulama (authentication) katmanıdır. `id_token` üreterek kullanıcının kim olduğunu doğrular.
+- **OpenIddict:** .NET uygulamalarında bağımsız bir OAuth 2.0 ve OpenID Connect kimlik sunucusu (Identity Provider) kurmayı sağlayan popüler ve esnek bir kütüphanedir.
+
+### 6.4 Backend Performans Optimizasyon Teknikleri
+1. **`AsNoTracking()` Kullanımı:**
+   - EF Core, okuduğu her nesneyi bellekte izler (change tracking). Sadece listeleme yapılan `GET` isteklerinde `.AsNoTracking()` kullanıldığında bellek tüketimi düşer ve sorgu çalışma hızı ciddi oranda artar.
+   - *Örnek:* `_context.Products.AsNoTracking().ToListAsync();`
+2. **Önbellekleme (Caching - In-Memory ve Dağıtık Redis):**
+   - Sık erişilen ve az değişen veriler doğrudan veritabanından çekilmek yerine belleğe yazılır. Çok sunuculu (load-balanced) ortamlarda **Redis** dağıtık cache çözümü olarak sunucular arası veri tutarlılığı sağlar.
+3. **`IAsyncEnumerable` ile Akış (Streaming):**
+   - Büyük veri setleri çekilirken tüm listenin belleğe (RAM) dolması yerine, veritabanından gelen veriler geldikçe anlık olarak istemciye akıtılır (stream edilir). Bu sayede sunucu bellek tüketimi minimuma indirilir.
+
+### 6.5 OWASP Top 10 Güvenlik Açıkları ve ASP.NET Core Önlemleri
+
+| Açık Adı | Tanım | ASP.NET Core Savunması |
+|---|---|---|
+| **A01: Broken Access Control** | Kullanıcıların yetkisi dışındaki kaynaklara erişebilmesi. | Endpoint'lerde `[Authorize(Roles = "Admin")]` ve policy bazlı denetimler kullanmak. |
+| **A02: Cryptographic Failures** | Hassas verilerin (şifreler, kartlar) güvensiz saklanması/iletilmesi. | Zorunlu HTTPS (`app.UseHttpsRedirection()`) ve BCrypt/Argon2 ile parola hash'leme. |
+| **A03: Injection (SQLi, Command)** | Zararlı sorguların veya komutların girdi alanlarından veritabanına sızması. | EF Core parametreli sorguları varsayılan uygular; asla string concatenation ile SQL yazılmamalıdır. |
+| **A04: Insecure Design** | Yazılım mimarisinin en baştan tehdit modellemesi yapılmadan kurgulanması. | Güvenli kodlama standartları ve rate-limiting ile brute-force saldırılarını engellemek. |
+| **A05: Security Misconfiguration** | Varsayılan şifreler, açık bırakılan debug portları veya detaylı hata mesajları. | Production ortamında `UseDeveloperExceptionPage` kapatılmalı, hassas header'lar temizlenmelidir. |
+| **A06: Vulnerable Components** | Güvenlik açığı bulunan güncel olmayan üçüncü taraf NuGet paketleri. | `dotnet list package --vulnerable` komutu ile paket güvenlik taraması yapmak. |
+| **A07: Identification and Auth Failures** | Zayıf parola politikası, oturum sabitleme veya brute-force açıkları. | ASP.NET Core Identity ile güçlü parola kuralları, hesap kilitleme ve 2FA zorunluluğu. |
+| **A08: Software and Data Integrity Failures** | Doğrulanmamış kaynaklardan gelen güncellemeler ve güvensiz deserialization. | JSON serileştirmesinde System.Text.Json kullanmak, CI/CD paket imzalamalarını doğrulamak. |
+| **A09: Security Logging & Monitoring Failures** | Yetkisiz erişimlerin loglanmaması veya saldırı anında alarm üretilmemesi. | Serilog/ELK gibi merkezi loglama araçlarıyla denetim (audit) logları tutmak. |
+| **A10: Server-Side Request Forgery (SSRF)** | Sunucunun saldırgan tarafından hedeflenen uzak bir kaynağa istek yapmaya zorlanması. | Dışa giden isteklerde IP/Domain beyaz listelemesi (whitelisting) yapmak. |
+
+---
+
+## 7. Logging ve Hata Yönetimi
+
+### 7.1 Loglama Neden Önemlidir? Log Seviyeleri Nelerdir?
+Loglama, uygulamanın arka plandaki davranışlarını, performans darboğazlarını ve çalışma zamanı hatalarını analiz edebilmek için hayati bir gözlemlenebilirlik (observability) bileşenidir.
+
+#### Standart Log Seviyeleri (`LogLevel`):
+- **Trace:** En ayrıntılı teşhis bilgileridir; sadece derin hata ayıklama süreçlerinde açılır.
+- **Debug:** Geliştirme aşamasında akışı takip etmek için kullanılan bilgilerdir.
+- **Information:** Sistemin normal çalışma akışındaki kritik olaylar (Örn: "Kullanıcı oturum açtı").
+- **Warning:** Hata olmayan ancak potansiyel sorun teşkil edebilecek durumlar (Örn: "Disk doluluk oranı %85").
+- **Error:** Mevcut işlemin başarısız olmasına yol açan ancak uygulamanın çalışmasını durdurmayan hatalar.
+- **Critical:** Uygulamanın çökmesine yol açabilecek kritik sistem arızaları (Örn: "Veritabanına ulaşılamıyor").
+
+### 7.2 ASP.NET Core'da `ILogger` Kullanımı
+ASP.NET Core yerleşik olarak bağımlılık enjeksiyonuna (DI) uygun `ILogger<T>` arayüzü sunar:
+
+```csharp
+public class OrderService
+{
+    private readonly ILogger<OrderService> _logger;
+
+    public OrderService(ILogger<OrderService> logger)
+    {
+        _logger = logger;
+    }
+
+    public void ProcessOrder(int orderId)
+    {
+        _logger.LogInformation("Sipariş işleme alındı: {OrderId}", orderId);
+        try
+        {
+            // Sipariş mantığı...
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Sipariş işlenirken beklenmeyen hata oluştu! Id: {OrderId}", orderId);
+            throw;
+        }
+    }
+}
+```
+
+### 7.3 Global Exception Handling (Merkezi Hata Yönetimi)
+Hataların `try-catch` bloklarıyla her yere saçılması yerine, merkezi bir middleware ile yakalanması Clean Code açısından esastır. Bu yaklaşım hassas sunucu hatalarının istemciye sızmasını engeller ve standart `ProblemDetails` (RFC 7807) formatında yanıt döner:
+
+```csharp
+public class ExceptionMiddleware
+{
+    private readonly RequestDelegate _next;
+    private readonly ILogger<ExceptionMiddleware> _logger;
+
+    public ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddleware> logger)
+    {
+        _next = next;
+        _logger = logger;
+    }
+
+    public async Task InvokeAsync(HttpContext httpContext)
+    {
+        try
+        {
+            await _next(httpContext);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Sunucu genelinde yakalanan hata: {Message}", ex.Message);
+            await HandleExceptionAsync(httpContext, ex);
+        }
+    }
+
+    private static Task HandleExceptionAsync(HttpContext context, Exception exception)
+    {
+        context.Response.ContentType = "application/json";
+        context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+
+        var response = new
+        {
+            StatusCode = context.Response.StatusCode,
+            Message = "Sunucu tarafında beklenmeyen bir hata meydana geldi.",
+            Detailed = exception.Message // Production ortamında gizlenmelidir
+        };
+
+        return context.Response.WriteAsync(JsonSerializer.Serialize(response));
+    }
+}
+```
+
+---
+
+## 8. Yazılım Geliştirme Prensipleri ve Tasarım Desenleri
+
+### 8.1 SOLID Prensipleri
+Yazılımın esnek, anlaşılır ve bakımı kolay olmasını sağlayan 5 temel nesne yönelimli tasarım ilkesidir:
+
+1. **S - Single Responsibility Principle (SRP):** Bir sınıfın değişmesi için yalnızca tek bir nedeni olmalıdır. Tek bir işten sorumlu olmalıdır.
+   - *Örnek:* Bir sınıf hem sipariş hesaplayıp hem de e-posta göndermemelidir. E-posta gönderimi `IEmailService` sınıfına devredilmelidir.
+2. **O - Open/Closed Principle (OCP):** Sınıflar gelişime açık, ancak değişime kapalı olmalıdır. Yeni bir özellik eklemek mevcut çalışan kodu değiştirmemelidir.
+   - *Örnek:* Ödeme yöntemleri için `if-else` yazmak yerine bir `IPaymentMethod` interface'i tanımlanıp yeni yöntemler (Kredi Kartı, Havale) bu interface'ten türetilmelidir.
+3. **L - Liskov Substitution Principle (LSP):** Alt sınıflar, türedikleri üst sınıfların yerine kullanılabilmeli ve onların davranışını bozmamalıdır.
+   - *Örnek:* `Kare`, `Dikdörtgen` sınıfından türetildiğinde en-boy bağımsız değiştirilemiyorsa LSP ihlal edilmiş olur.
+4. **I - Interface Segregation Principle (ISP):** İstemciler kullanmadıkları metotları içeren geniş arayüzleri uygulamaya zorlanmamalıdır. Büyük arayüzler yerine amaca özel küçük arayüzler tercih edilmelidir.
+   - *Örnek:* `IWorker` yerine `IWorkable` ve `IFeedable` arayüzlerinin ayrı tutulması (Robot çalışan yemek yemez).
+5. **D - Dependency Inversion Principle (DIP):** Yüksek seviyeli modüller, düşük seviyeli modüllere doğrudan bağımlı olmamalıdır; her ikisi de soyutlamalara (interface/abstract class) bağımlı olmalıdır.
+   - *Örnek:* `OrderService`, doğrudan `SqlDatabase` sınıfına değil, `IRepository` arayüzüne bağımlı olmalıdır.
+
+### 8.2 Tasarım Desenleri (Design Patterns)
+- **Singleton Pattern:** Bir sınıftan uygulama yaşam döngüsü boyunca yalnızca tek bir örneğin oluşturulmasını garanti eder.
+  - *Kullanım Senaryosu:* Konfigürasyon yöneticisi, bellek içi önbellek (MemoryCache) yönetimi.
+- **Repository Pattern:** Veritabanı erişim mantığını iş mantığından soyutlar; veritabanı türü değiştiğinde iş katmanının etkilenmemesini sağlar.
+- **Factory Pattern:** Nesne üretim sürecini istemciden gizleyerek bir arayüz veya üst sınıf üzerinden dinamik nesne üretilmesini sağlar.
+
+### 8.3 Clean Code (Temiz Kod) Nedir?
+Clean Code; okunması, anlaşılması ve üzerinde geliştirme yapılması kolay, gereksiz karmaşıklıktan arındırılmış koddur.
+- **İsimlendirme:** Kısaltmalardan kaçınılmalı, değişken ve metot adları işlevini doğrudan açıklamalıdır (`d` yerine `daysSinceLastLogin`).
+- **Fonksiyon Boyutu:** Fonksiyonlar tek bir iş yapmalı ve ideal olarak 20 satırı geçmemelidir.
+- **Yan Etkilerden Kaçınma:** Bir metot hem sorgulama yapıp hem de arkada veri tabanını sessizce değiştirmemelidir (CQS - Command Query Separation).
+
+### 8.4 Yazılım Mimari Desenlerinin Karşılaştırılması
+
+| Mimari Türü | Temel Yaklaşım | Avantajı | Hangi Senaryoda Tercih Edilir? |
+|---|---|---|---|
+| **Layered (Katmanlı)** | Sunum, İş, Veri katmanları yatay dizilir. | Kurulumu ve öğrenmesi çok kolaydır. | Küçük ve orta ölçekli projeler, MVP çalışmaları. |
+| **Clean Architecture** | Bağımlılıklar içe (Domain çekirdeğine) doğrudur. | Test edilebilirlik en üst düzeydedir; framework/DB bağımsızdır. | Uzun ömürlü, karmaşık iş kuralları olan kurumsal projeler. |
+| **Microservices** | Sistem bağımsız çalışan küçük servislere bölünür. | Bağımsız deploy edilebilir, farklı teknolojiler kullanılabilir, yatay ölçeklenir. | Çok büyük ekipler, yüksek trafikli ve modüler büyük sistemler. |
+| **Event-Driven** | Servisler mesaj kuyrukları (RabbitMQ/Kafka) ile haberleşir. | Servisler arası asenkron çalışma ve tam gevşek bağlılık (loose coupling). | Anlık yoğun trafik alan sipariş, bildirim ve finans sistemleri. |
+| **Hexagonal (Ports & Adapters)** | Çekirdek uygulama giriş/çıkış portları ile dış dünyadan yalıtılır. | Dış bağımlılıkların kolayca mock'lanabilmesi ve değiştirilebilirliği. | Sık sık dış API ve entegrasyon değiştiren sistemler. |
